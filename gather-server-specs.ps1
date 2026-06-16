@@ -19,7 +19,7 @@ if (-not (Test-Path ".\output")) { New-Item -ItemType Directory -Path ".\output"
 
 # Get all instances with Project tag
 $allInstances = aws ec2 describe-instances `
-  --query "Reservations[].Instances[?State.Name!='terminated'].{InstanceId:InstanceId,Name:Tags[?Key=='Name']|[0].Value,Platform:Platform,InstanceType:InstanceType,Project:Tags[?Key=='Project']|[0].Value}" `
+  --query "Reservations[].Instances[?State.Name!='terminated'][].{InstanceId:InstanceId,Name:Tags[?Key=='Name']|[0].Value,Platform:Platform,InstanceType:InstanceType,Project:Tags[?Key=='Project']|[0].Value}" `
   --output json | ConvertFrom-Json
 
 if (-not $allInstances) {

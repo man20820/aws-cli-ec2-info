@@ -20,7 +20,7 @@ Write-Host "Gathering EC2 instances with Project tag: $projectTag ..."
 if (-not (Test-Path ".\output")) { New-Item -ItemType Directory -Path ".\output" | Out-Null }
 
 $allInstances = aws ec2 describe-instances `
-  --query "Reservations[].Instances[?State.Name!='terminated'].{Name:Tags[?Key=='Name']|[0].Value,PrivateIP:PrivateIpAddress,InstanceType:InstanceType,Environment:Tags[?Key=='Environment']|[0].Value,Project:Tags[?Key=='Project']|[0].Value}" `
+  --query "Reservations[].Instances[?State.Name!='terminated'][].{Name:Tags[?Key=='Name']|[0].Value,PrivateIP:PrivateIpAddress,InstanceType:InstanceType,Environment:Tags[?Key=='Environment']|[0].Value,Project:Tags[?Key=='Project']|[0].Value}" `
   --output json | ConvertFrom-Json
 
 if (-not $allInstances) {

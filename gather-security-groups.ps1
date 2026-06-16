@@ -19,7 +19,7 @@ if (-not (Test-Path ".\output")) { New-Item -ItemType Directory -Path ".\output"
 
 # Get instances with Project tag to find their security groups
 $allInstances = aws ec2 describe-instances `
-  --query "Reservations[].Instances[?State.Name!='terminated'].{SecurityGroups:SecurityGroups[].GroupId,Project:Tags[?Key=='Project']|[0].Value}" `
+  --query "Reservations[].Instances[?State.Name!='terminated'][].{SecurityGroups:SecurityGroups[].GroupId,Project:Tags[?Key=='Project']|[0].Value}" `
   --output json | ConvertFrom-Json
 
 if (-not $allInstances) {
