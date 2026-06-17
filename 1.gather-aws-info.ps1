@@ -4,7 +4,7 @@
 # ============================================
 
 # --- EC2 Instances ---
-# Columns: Name, Private IP, Instance Type, Environment Tag
+# Columns: No, Name, IP Address, Instance Detail, Environment
 # Filtered by Project tag (user input)
 
 $scriptStart = Get-Date
@@ -95,8 +95,15 @@ Write-Host ""
 $stepStart = Get-Date
 Write-Host "[Step 6/6] Exporting to CSV..." -ForegroundColor Yellow
 
-$filtered | Select-Object Name, PrivateIP, InstanceType, Environment |
-  Export-Csv -Path ".\output\ec2-instances.csv" -NoTypeInformation
+$rowNum = 0
+$results = $filtered | Select-Object `
+  @{Name='No';Expression={ $script:rowNum++; $script:rowNum }},
+  @{Name='Name';Expression={ $_.Name }},
+  @{Name='IP Address';Expression={ $_.PrivateIP }},
+  @{Name='Instance Detail';Expression={ $_.InstanceType }},
+  @{Name='Environment';Expression={ $_.Environment }}
+
+$results | Export-Csv -Path ".\output\ec2-instances.csv" -NoTypeInformation
 
 $elapsed = (Get-Date) - $stepStart
 Write-Host "[Step 6/6] Done. (took $($elapsed.TotalSeconds.ToString('F2'))s)" -ForegroundColor Green
