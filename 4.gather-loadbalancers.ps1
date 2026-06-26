@@ -2,7 +2,7 @@
 # AWS Load Balancer Information
 # Output: loadbalancers.csv
 # Columns: Name, Type (ALB/NLB), DNS, Listeners
-# Filtered by Project tag (user input)
+# User selects load balancers manually from the list
 # ============================================
 
 $scriptStart = Get-Date
@@ -10,28 +10,9 @@ Write-Host "=== AWS Load Balancer Gathering ===" -ForegroundColor Cyan
 Write-Host "Started at: $($scriptStart.ToString('yyyy-MM-dd HH:mm:ss'))" -ForegroundColor Cyan
 Write-Host ""
 
-# --- Step 1: User Input ---
+# --- Step 1: Ensure Output Directory ---
 $stepStart = Get-Date
-Write-Host "[Step 1/6] Prompting for Project tag..." -ForegroundColor Yellow
-$projectTag = Read-Host "Enter the Project tag value to filter load balancers"
-$elapsed = (Get-Date) - $stepStart
-Write-Host "[Step 1/6] Done. (took $($elapsed.TotalSeconds.ToString('F2'))s)" -ForegroundColor Green
-Write-Host ""
-
-# --- Step 2: Validate Input ---
-$stepStart = Get-Date
-Write-Host "[Step 2/6] Validating input..." -ForegroundColor Yellow
-if ([string]::IsNullOrWhiteSpace($projectTag)) {
-    Write-Host "Error: Project tag cannot be empty." -ForegroundColor Red
-    exit 1
-}
-$elapsed = (Get-Date) - $stepStart
-Write-Host "[Step 2/6] Input OK: '$projectTag' (took $($elapsed.TotalSeconds.ToString('F2'))s)" -ForegroundColor Green
-Write-Host ""
-
-# --- Step 3: Ensure Output Directory ---
-$stepStart = Get-Date
-Write-Host "[Step 3/6] Checking output directory..." -ForegroundColor Yellow
+Write-Host "[Step 1/5] Checking output directory..." -ForegroundColor Yellow
 if (-not (Test-Path ".\output")) {
     New-Item -ItemType Directory -Path ".\output" | Out-Null
     Write-Host "         Created .\output directory" -ForegroundColor Gray
@@ -39,12 +20,12 @@ if (-not (Test-Path ".\output")) {
     Write-Host "         .\output already exists" -ForegroundColor Gray
 }
 $elapsed = (Get-Date) - $stepStart
-Write-Host "[Step 3/6] Done. (took $($elapsed.TotalSeconds.ToString('F2'))s)" -ForegroundColor Green
+Write-Host "[Step 1/5] Done. (took $($elapsed.TotalSeconds.ToString('F2'))s)" -ForegroundColor Green
 Write-Host ""
 
-# --- Step 4: AWS CLI - Describe Load Balancers ---
+# --- Step 2: AWS CLI - Describe Load Balancers ---
 $stepStart = Get-Date
-Write-Host "[Step 4/6] Calling AWS ELBv2 describe-load-balancers..." -ForegroundColor Yellow
+Write-Host "[Step 2/5] Calling AWS ELBv2 describe-load-balancers..." -ForegroundColor Yellow
 
 $allLBs = aws elbv2 describe-load-balancers `
   --query "LoadBalancers[].{LoadBalancerArn:LoadBalancerArn,LoadBalancerName:LoadBalancerName,Type:Type,DNSName:DNSName,SecurityGroups:SecurityGroups}" `
@@ -52,7 +33,7 @@ $allLBs = aws elbv2 describe-load-balancers `
 
 $elapsed = (Get-Date) - $stepStart
 $lbCount = if ($allLBs) { $allLBs.Count } else { 0 }
-Write-Host "[Step 4/6] Done. Retrieved $lbCount load balancers. (took $($elapsed.TotalSeconds.ToString('F2'))s)" -ForegroundColor Green
+Write-Host "[Step 2/5] Done. Retrieved $lbCount load balancers. (took $($elapsed.TotalSeconds.ToString('F2'))s)" -ForegroundColor Green
 
 if (-not $allLBs) {
     Write-Host "Error: AWS CLI call failed or no load balancers found." -ForegroundColor Red
@@ -61,51 +42,55 @@ if (-not $allLBs) {
 }
 Write-Host ""
 
-# --- Step 5: Filter by Project Tag ---
+# --- Step 3: Manual Selection ---
 $stepStart = Get-Date
-Write-Host "[Step 5/6] Checking tags for each load balancer ($lbCount LBs)..." -ForegroundColor Yellow
-Write-Host "         This makes 1 API call per LB to check tags." -ForegroundColor Gray
-
-$filteredLBs = @()
-$processedLBs = 0
-
-foreach ($lb in $allLBs) {
-    $processedLBs++
-
-    $tags = aws elbv2 describe-tags `
-      --resource-arns $lb.LoadBalancerArn `
-      --query "TagDescriptions[0].Tags" `
-      --output json 2>$null | ConvertFrom-Json
-
-    $projectMatch = $false
-    if ($tags) {
-        $projTag = $tags | Where-Object { $_.Key -eq "Project" -or $_.Key -eq "project" }
-        if ($projTag -and $projTag.Value -eq $projectTag) { $projectMatch = $true }
+Write-Host "[Step 3/5] Select load balancers to include..." -ForegroundColor Yellow
+Write-Host ""
+Write-Host "  Available load balancers:" -ForegroundColor White
+for ($i = 0; $i -lt $allLBs.Count; $i++) {
+    $lbType = switch ($allLBs[$i].Type) {
+        "application" { "ALB" }
+        "network"     { "NLB" }
+        "gateway"     { "GLB" }
+        default       { $allLBs[$i].Type }
     }
+    Write-Host "    [$($i + 1)] $($allLBs[$i].LoadBalancerName) ($lbType)" -ForegroundColor White
+}
+Write-Host ""
+Write-Host "  Enter numbers separated by comma (e.g. 1,3,5) or 'all' for all:" -ForegroundColor Gray
+$selection = Read-Host "  Selection"
 
-    if ($projectMatch) {
-        $filteredLBs += $lb
-        Write-Host "         [$processedLBs/$lbCount] $($lb.LoadBalancerName) - Matched!" -ForegroundColor Green
-    } else {
-        Write-Host "         [$processedLBs/$lbCount] $($lb.LoadBalancerName) - Skipped." -ForegroundColor DarkGray
+if ($selection -eq "all" -or [string]::IsNullOrWhiteSpace($selection)) {
+    $filteredLBs = $allLBs
+    Write-Host "         Selected all $lbCount load balancers." -ForegroundColor Green
+} else {
+    $indices = $selection -split "," | ForEach-Object { $_.Trim() }
+    $filteredLBs = @()
+    foreach ($idx in $indices) {
+        $num = 0
+        if ([int]::TryParse($idx, [ref]$num) -and $num -ge 1 -and $num -le $lbCount) {
+            $filteredLBs += $allLBs[$num - 1]
+        } else {
+            Write-Host "         Warning: Invalid selection '$idx' - skipped." -ForegroundColor Yellow
+        }
     }
 }
 
+$filteredCount = if ($filteredLBs) { @($filteredLBs).Count } else { 0 }
 $elapsed = (Get-Date) - $stepStart
-$filteredCount = $filteredLBs.Count
-Write-Host "[Step 5/6] Done. Found $filteredCount matching load balancers. (took $($elapsed.TotalSeconds.ToString('F2'))s)" -ForegroundColor Green
+Write-Host "[Step 3/5] Done. Selected $filteredCount load balancers. (took $($elapsed.TotalSeconds.ToString('F2'))s)" -ForegroundColor Green
 
 if ($filteredCount -eq 0) {
     Write-Host ""
-    Write-Host "Warning: No load balancers found with Project tag '$projectTag'" -ForegroundColor Yellow
+    Write-Host "Error: No valid load balancers selected." -ForegroundColor Red
     Export-Csv -InputObject @() -Path ".\output\loadbalancers.csv" -NoTypeInformation
     exit 0
 }
 Write-Host ""
 
-# --- Step 6: Get Listeners & Export ---
+# --- Step 4: Get Listeners ---
 $stepStart = Get-Date
-Write-Host "[Step 6/6] Fetching listeners for $filteredCount load balancers..." -ForegroundColor Yellow
+Write-Host "[Step 4/5] Fetching listeners for $filteredCount load balancers..." -ForegroundColor Yellow
 
 $results = @()
 $processedLBs = 0
@@ -139,10 +124,18 @@ foreach ($lb in $filteredLBs) {
     }
 }
 
+$elapsed = (Get-Date) - $stepStart
+Write-Host "[Step 4/5] Done. (took $($elapsed.TotalSeconds.ToString('F2'))s)" -ForegroundColor Green
+Write-Host ""
+
+# --- Step 5: Export ---
+$stepStart = Get-Date
+Write-Host "[Step 5/5] Exporting to CSV..." -ForegroundColor Yellow
+
 $results | Export-Csv -Path ".\output\loadbalancers.csv" -NoTypeInformation
 
 $elapsed = (Get-Date) - $stepStart
-Write-Host "[Step 6/6] Done. (took $($elapsed.TotalSeconds.ToString('F2'))s)" -ForegroundColor Green
+Write-Host "[Step 5/5] Done. (took $($elapsed.TotalSeconds.ToString('F2'))s)" -ForegroundColor Green
 Write-Host ""
 
 # --- Summary ---
